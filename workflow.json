@@ -1,0 +1,173 @@
+{
+  "name": "RaxJobRadar",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "cronExpression", "expression": "0 19 * * *"},
+            {"field": "cronExpression", "expression": "0 14 * * *"},
+            {"field": "cronExpression", "expression": "0 8 * * *"}
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [-176, 64],
+      "id": "2c4c2339-e73d-4967-a859-662fafceb4e4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-API-KEY", "value": "YOUR_SERPER_API_KEY"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "q", "value": "Werkstudent ADAS OR \"autonomous driving\" OR \"Computer Vision\" OR \"Sensor Fusion\" Bayern site:linkedin.com OR site:stepstone.de OR site:indeed.de"},
+            {"name": "gl", "value": "de"},
+            {"name": "hl", "value": "de"},
+            {"name": "num", "value": "10"},
+            {"name": "tbs", "value": "qdr:w"}
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Track A Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [80, -48],
+      "id": "aacd2434-3fb6-44f6-81a6-6e3758ce3af4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-API-KEY", "value": "YOUR_SERPER_API_KEY"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "q", "value": "Werkstudent \"Technisches Projektmanagement\" OR Projektingenieur OR Digitalisierung OR \"Systems Engineering\" Bayern"},
+            {"name": "gl", "value": "de"},
+            {"name": "hl", "value": "de"},
+            {"name": "num", "value": "10"},
+            {"name": "tbs", "value": "qdr:w"}
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Track B Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [80, 160],
+      "id": "f76db94a-2e61-4dde-8ba1-c8936fc16d42"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [336, 64],
+      "id": "9af2f595-f9b2-4d74-9a3c-2fd0f1a0a4b4"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input1 = $input.all();\nconst allResults = [];\n\nfor (const item of input1) {\n  const organic = item.json.organic || [];\n  for (const r of organic) {\n    allResults.push({\n      title: r.title || '',\n      link: r.link || '',\n      snippet: r.snippet || '',\n      date: r.date || 'unknown'\n    });\n  }\n}\n\nreturn [{ json: { jobs: allResults } }];"
+      },
+      "name": "Parse Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [592, 64],
+      "id": "c93ed101-7608-4e3e-9620-9c32037ad3e2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobs = $input.first().json.jobs;\n\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.anthropic.com/v1/messages',\n  headers: {\n    'x-api-key': 'YOUR_ANTHROPIC_API_KEY',\n    'anthropic-version': '2023-06-01',\n    'content-type': 'application/json'\n  },\n  body: {\n    model: 'claude-haiku-4-5-20251001',\n    max_tokens: 1000,\n    messages: [{\n      role: 'user',\n      content: 'You must respond with ONLY a JSON array. No backticks. No markdown. No code blocks. No explanation. Start your response with [ and end with ]. Example format: [{\"title\":\"job\",\"url\":\"http://example.com\",\"score\":75,\"track\":\"A\",\"reason\":\"good match\"}]. Now score these jobs for Rakshith Ravi (Python PyTorch ROS2 ADAS Bavaria Werkstudent). Track A: ADAS CV ML. Track B: Technical PM. NO FIT: business HR pharma. Score 0-100. Jobs: ' + JSON.stringify(jobs)\n    }]\n  },\n  json: true\n});\n\nreturn [{ json: response }];"
+      },
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [832, 64],
+      "id": "ea365943-07d5-4e51-b7b6-21d077f9b597"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst text = response.content[0].text;\n\nlet jobs;\ntry {\n  const start = text.indexOf('[');\n  const end = text.lastIndexOf(']');\n  let clean = text.substring(start, end + 1);\n  clean = clean.replace(/[\\r\\n\\t]/g, ' ');\n  clean = clean.replace(/\\\\n/g, ' ');\n  clean = clean.replace(/\\s+/g, ' ');\n  clean = clean.replace(/^```json\\s*/,'').replace(/```$/,'').trim();\n  if (clean.includes('`')) { clean = clean.replace(/`/g, ''); }\n  jobs = JSON.parse(clean);\n} catch(e) {\n  return [{ json: { message: 'Parse error: ' + e.message } }];\n}\n\nconst filtered = jobs\n  .filter(j => j.track !== 'NO FIT' && j.score >= 40)\n  .sort((a, b) => b.score - a.score);\n\nif (filtered.length === 0) {\n  return [{ json: { message: 'No matches found today.' } }];\n}\n\nlet msg = 'RaxJobRadar Daily Report\\n';\nmsg += new Date().toLocaleDateString('de-DE') + '\\n\\n';\n\nfiltered.forEach((j, i) => {\n  msg += `${i+1}. ${j.title}\\n`;\n  msg += `Track ${j.track} | Score: ${j.score}/100\\n`;\n  msg += `${j.reason}\\n`;\n  msg += `${j.url}\\n\\n`;\n});\n\nmsg += `Total: ${filtered.length} matches found.`;\nreturn [{ json: { message: msg } }];"
+      },
+      "name": "Format Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 64],
+      "id": "adb62150-6568-4d80-ab08-c0a84c2e36a2"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1344, 64],
+      "id": "ed51cdf8-7413-4de9-9b92-2940077ab58a",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[
+        {"node": "Search Track A Jobs", "type": "main", "index": 0},
+        {"node": "Search Track B Jobs", "type": "main", "index": 0}
+      ]]
+    },
+    "Search Track A Jobs": {
+      "main": [[{"node": "Merge Results", "type": "main", "index": 0}]]
+    },
+    "Search Track B Jobs": {
+      "main": [[{"node": "Merge Results", "type": "main", "index": 1}]]
+    },
+    "Merge Results": {
+      "main": [[{"node": "Parse Results", "type": "main", "index": 0}]]
+    },
+    "Parse Results": {
+      "main": [[{"node": "Code in JavaScript", "type": "main", "index": 0}]]
+    },
+    "Code in JavaScript": {
+      "main": [[{"node": "Format Message", "type": "main", "index": 0}]]
+    },
+    "Format Message": {
+      "main": [[{"node": "Send Telegram", "type": "main", "index": 0}]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
+
