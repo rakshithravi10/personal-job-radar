@@ -14,6 +14,20 @@ QUERIES = {
     "B": 'Werkstudent "Technisches Projektmanagement" OR Projektingenieur OR Digitalisierung OR "Systems Engineering" Bayern',
 }
 
+HEX_SPAM_TITLE = re.compile(r"^[0-9a-f]{8,20}$", re.IGNORECASE)
+
+
+def is_spam(job):
+    title = job.get("title", "")
+    link = job.get("link", "")
+    if HEX_SPAM_TITLE.match(title.strip()):
+        return True
+    if link.count("%25") > 5:  # double-encoded junk URLs
+        return True
+    if len(link) > 300:
+        return True
+    return False
+
 
 def search_serper(query):
     r = requests.post(
@@ -30,12 +44,14 @@ def parse_results():
     jobs = []
     for query in QUERIES.values():
         for r in search_serper(query):
-            jobs.append({
+            job = {
                 "title": r.get("title", ""),
                 "link": r.get("link", ""),
                 "snippet": r.get("snippet", ""),
                 "date": r.get("date", "unknown"),
-            })
+            }
+            if not is_spam(job):
+                jobs.append(job)
     return jobs
 
 
@@ -57,7 +73,7 @@ def score_jobs(jobs):
         },
         json={
             "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1000,
+            "max_tokens": 2000,
             "messages": [{"role": "user", "content": prompt}],
         },
         timeout=60,
