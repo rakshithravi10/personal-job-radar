@@ -1,0 +1,24 @@
+name: job-radar
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 08:00 Berlin (CEST, UTC+2)
+    - cron: "0 12 * * *"  # 14:00 Berlin
+    - cron: "0 17 * * *"  # 19:00 Berlin
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Run job radar
+        env:
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python job_radar.py
